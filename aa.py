@@ -1,5 +1,8 @@
 import logging
 import asyncio
+import os
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -12,6 +15,19 @@ from telegram.ext import (
     ConversationHandler,
 )
 
+# --- سرور فرضی برای فعال نگه داشتن ربات روی پلن رایگان Render ---
+class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Candle Bot is running successfully!")
+
+def run_dummy_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(('0.0.0.0', port), SimpleHTTPRequestHandler)
+    server.serve_forever()
+
+# تنظیمات لوگ
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
@@ -449,6 +465,9 @@ async def show_my_candles(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- ۹. اجرا ---
 def main():
+    # روشن کردن سرور وب فرضی در پس‌زمینه برای Render
+    threading.Thread(target=run_dummy_server, daemon=True).start()
+
     TOKEN = "8998529794:AAGIbI-TB9PesR3XepE8IFlpmTzbtoCZXFE"
     app = ApplicationBuilder().token(TOKEN).build()
 
@@ -485,7 +504,7 @@ def main():
     app.add_handler(MessageHandler(filters.Regex("^شمع هام$"), show_my_candles))
     app.add_handler(MessageHandler(filters.Regex("^جدول برترین‌ها$"), show_leaderboard))
 
-    print("ربات تمیز و بدون ستاره فعال شد...")
+    print("ربات آماده آپلود است...")
     app.run_polling()
 
 if __name__ == "__main__":
