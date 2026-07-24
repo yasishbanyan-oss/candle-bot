@@ -1,9 +1,8 @@
 import logging
 import asyncio
 import os
-import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import datetime, timedelta
+from aiohttp import web
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
@@ -14,18 +13,6 @@ from telegram.ext import (
     filters,
     ConversationHandler,
 )
-
-# --- سرور فرضی برای فعال نگه داشتن ربات روی پلن رایگان Render ---
-class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"Smuggling Game Bot is running successfully!")
-
-def run_dummy_server():
-    port = int(os.environ.get("PORT", 8080))
-    server = HTTPServer(('0.0.0.0', port), SimpleHTTPRequestHandler)
-    server.serve_forever()
 
 # تنظیمات لوگ
 logging.basicConfig(
@@ -146,7 +133,6 @@ async def start_headquarters(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     now = datetime.now()
 
-    # اگر کارگری ندارد
     if not data["workers"]:
         await update.message.reply_text(
             "⚠️ شما هنوز هیچ کارگری ندارید!\n"
@@ -155,7 +141,6 @@ async def start_headquarters(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return
 
-    # ۱. اگر جنس آماده برداشت است
     if data["ready_drugs"] > 0:
         keyboard = [[InlineKeyboardButton("📦 انبار کردن جنس‌ها ❄️", callback_data="claim_drugs")]]
         await update.message.reply_text(
@@ -167,7 +152,6 @@ async def start_headquarters(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return
 
-    # ۲. اگر در حال تولید است
     if data["is_extracting"] and data["extraction_end_time"]:
         if now < data["extraction_end_time"]:
             remaining_sec = int((data["extraction_end_time"] - now).total_seconds())
@@ -188,7 +172,6 @@ async def start_headquarters(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
             return
 
-    # ۳. اگر کارگر خسته است
     if data["worker_tired"]:
         await update.message.reply_text(
             f"🛑 رئیس! کارگر ({data['selected_worker']}) خسته شده و افتاده گوشه لابراتوار!\n"
@@ -198,7 +181,6 @@ async def start_headquarters(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return
 
-    # ۴. پنل شیشه‌ای انتخاب کارگر
     keyboard = []
     for worker in data["workers"]:
         keyboard.append([InlineKeyboardButton(f"👨‍🏭 {worker}", callback_data=f"select_worker:{worker}")])
@@ -523,10 +505,11 @@ async def show_my_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_to_message_id=update.message.message_id
         )
 
-# --- ۱۰. اجرا ---
-def main():
-    threading.Thread(target=run_dummy_server, daemon=True).start()
+# --- وب‌سرور استاندارد aiohttp برای Render ---
+async def handle_ping(request):
+    return web.Response(text="Bot is online!")
 
+async def main():
     TOKEN = "8998529794:AAGIbI-TB9PesR3XepE8IFlpmTzbtoCZXFE"
     app = ApplicationBuilder().token(TOKEN).build()
 
@@ -577,8 +560,24 @@ def main():
     app.add_handler(MessageHandler(filters.Regex("^جنس هام$"), show_my_status))
     app.add_handler(MessageHandler(filters.Regex("^برترین ‌های قاچاق$"), show_leaderboard))
 
-    print("ربات قاچاق‌گیم آماده کار است...")
-    app.run_polling()
+    # راه‌اندازی سرور وب aiohttp در کنار ربات بدون بلاک کردن
+    web_app = web.Application()
+    web_app.router.add_get('/', handle_ping)
+    runner = web.AppRunner(web_app)
+    await runner.setup()
+    
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+
+    print("ربات قاچاق‌گیم آنلاین شد...")
+    
+    async with app:
+        await app.initialize()
+        await app.start()
+        await app.updater.start_polling()
+        # نگه‌داشتن برنامه در حال اجرا
+        await asyncio.Event().wait()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
